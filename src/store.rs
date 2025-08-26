@@ -10,7 +10,6 @@ impl Store {
     pub fn init() -> Store {
         let map: HashMap<String, String> = if let Ok(file) = std::fs::File::open(get_pin_path()) {
             let reader = std::io::BufReader::new(file);
-            println!("Saved!!! Isnt that cool!!");
             bincode::decode_from_reader(reader, bincode::config::standard()).unwrap_or_default()
         } else {
             HashMap::new()
@@ -23,8 +22,12 @@ impl Store {
     pub fn save(self) {
         let mut file =
             std::fs::File::create(get_pin_path()).expect("Could not write store to file");
-        let _ = bincode::encode_into_std_write(self.map, &mut file, bincode::config::standard())
-            .unwrap();
+        let _ = bincode::encode_into_std_write(
+            self.map.clone(),
+            &mut file,
+            bincode::config::standard(),
+        )
+        .unwrap();
     }
 
     // Validate the input and add it to the map
@@ -37,8 +40,7 @@ impl Store {
 
     // Get the path for the matching alias
     pub fn get(&self, key: &String) -> Option<String> {
-        // TODO:
-        self.map.get(key).clone().map(|k| (k.clone()))
+        self.map.get(key).cloned()
     }
 
     pub fn delete(&mut self, alias: String) -> Result<(), ()> {
@@ -49,8 +51,12 @@ impl Store {
     }
 
     //prints all key value pairs
-    pub fn list_all(&self) {
-        self.map.iter().for_each(|(k, v)| println!("{k}: {v}"));
+    pub fn list_all(&self) -> String {
+        self.map
+            .iter()
+            .map(|(k, v)| format!("{k} : {v}"))
+            .reduce(|acc, e| format!("{acc}\n{e}"))
+            .unwrap_or(String::from("You don't have any aliases right now."))
     }
 }
 
