@@ -38,7 +38,7 @@ fn parse_args(mut args: Args) -> Box<dyn Cmd> {
     let _ = args.next();
 
     match args.next().unwrap_or_default().as_str() {
-        "--add" => {
+        "--add" | "-a" => {
             // Get the alias or return ParseErr
             let Some(alias) = args.next() else {
                 return err_parse_msg("alias", "pin --add [alias] [path]");
@@ -52,7 +52,7 @@ fn parse_args(mut args: Args) -> Box<dyn Cmd> {
             // Return an add command
             Box::new(Add { alias, path })
         }
-        "--delete" => {
+        "--delete" | "-d" => {
             // Get the alias or return ParseErr
             let Some(alias) = args.next() else {
                 return err_parse_msg("alias", "pin --delete [alias]");
@@ -61,9 +61,9 @@ fn parse_args(mut args: Args) -> Box<dyn Cmd> {
             //
             Box::new(Delete { alias })
         }
-        "--help" => Box::new(Help { cmd: args.next() }),
-        "--list" => Box::new(List {}),
-        "--update" => {
+        "--help" | "-h" => Box::new(Help { cmd: args.next() }),
+        "--list" | "-l" => Box::new(List {}),
+        "--update" | "-u" => {
             // Get the alias or return ParseErr
             let Some(alias) = args.next() else {
                 return err_parse_msg("alias", "pin --update [alias]");
