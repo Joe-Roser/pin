@@ -333,7 +333,7 @@ impl Cmd for Update {
             write!(tty, "\r\x1B[2K").unwrap();
             for (i, option) in options.iter().enumerate() {
                 if i == selected {
-                    write!(tty, "\x1b[38:5:41m[{}]\x1b[0m", option).unwrap();
+                    write!(tty, "\x1b[32:5:41m[{}]\x1b[0m", option).unwrap();
                 } else {
                     write!(tty, " {} ", option).unwrap();
                 }
@@ -356,6 +356,7 @@ impl Cmd for Update {
                     KeyCode::Left | KeyCode::Char('h') => selected = 0,
                     KeyCode::Right | KeyCode::Char('l') => selected = 1,
                     KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+                        write!(tty, "\r\n").unwrap();
                         disable_raw_mode().unwrap();
                         return 0;
                     }
@@ -388,6 +389,7 @@ impl Cmd for Update {
                 match key_event.code {
                     KeyCode::Enter => break,
                     KeyCode::Esc => {
+                        write!(tty, "\r\n").unwrap();
                         disable_raw_mode().unwrap();
                         return 0;
                     }
