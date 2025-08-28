@@ -39,4 +39,5 @@ PinAlias struct{
 
 Todo:
 - [ ] Tags
-- [ ] Reworking output to use tty for current 2 codes
+
+

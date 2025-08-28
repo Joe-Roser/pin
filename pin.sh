@@ -6,8 +6,8 @@ pin() {
 	exit="$?"
 
 	case "$exit" in
-		"3") cd "$path" ;;
-		"2"|"1") echo "$path" ;;
+		"2") cd "$path" ;;
+		"1") echo "$path" ;;
 	esac
 }
 

@@ -6,7 +6,7 @@ use crossterm::{
 };
 use prettytable::{Table, row};
 
-use crate::{parse_path, store::Store};
+use crate::{parse_path, store::Store, tty::Tty};
 
 // Trait for structs that can be executed. Each command should implement execute. This is vv
 // similar to how I would use message enums normally, but with named parameters vv easily and
@@ -14,7 +14,7 @@ use crate::{parse_path, store::Store};
 //
 
 pub trait Cmd {
-    fn execute(self: Box<Self>) -> (String, i32);
+    fn execute(self: Box<Self>) -> i32;
 }
 
 // Implementors of Cmd
@@ -34,14 +34,17 @@ impl Pin {
 
 impl Cmd for Pin {
     // Return path or error
-    fn execute(self: Box<Self>) -> (String, i32) {
+    fn execute(self: Box<Self>) -> i32 {
         let store = Store::init();
         match store.get(&self.alias) {
-            Some(path) => (path, 3),
-            None => (
-                String::from("Error: Alias not found in store. Type \"pin --help\" for help"),
-                1,
-            ),
+            Some(path) => {
+                println!("{path}");
+                return 2;
+            }
+            None => {
+                eprintln!("Error: Alias not found in store. Type \"pin --help\" for help");
+                return 1;
+            }
         }
     }
 }
@@ -63,37 +66,42 @@ impl Add {
 
 impl Cmd for Add {
     // Add an alias-path pair
-    fn execute(self: Box<Self>) -> (String, i32) {
+    fn execute(self: Box<Self>) -> i32 {
         // Test path
         let path = match crate::parse_path(&self.path) {
-            Ok(path) => path.into_os_string().into_string().unwrap(),
-            Err(e) => return (e.to_string(), 1),
+            Ok(path) => path
+                .into_os_string()
+                .into_string()
+                .expect("Error: Unable to parse path as string."),
+            Err(e) => {
+                Tty::new()
+                    .expect("Error: unable to get tty access.")
+                    .write(e.to_string())
+                    .unwrap();
+                return 1;
+            }
         };
 
         let mut store = Store::init();
 
         // Confirmation on overwriting alias
-        // HACK: Defo refactor this
         match store.add(self.alias, path) {
             Err(path) => {
-                {
-                    let mut tty = match std::fs::OpenOptions::new().write(true).open("/dev/tty") {
-                        Ok(file) => file,
-                        Err(_) => return (String::from("Error: unable to access /dev/tty"), 1),
-                    };
-                    use std::io::Write;
-
-                    write!(
-                        tty,
-                        "This action will overwrite existing alias to {}.\n\r",
-                        path
-                    )
-                    .unwrap();
+                let mut tty = Tty::new().expect("Error: Unable to get raw tty access.");
+                match tty.write(format!(
+                    "This action will overwrite existing alias to {}.\n\r",
+                    path
+                )) {
+                    Ok(()) => {}
+                    Err(_) => {
+                        eprintln!("Error: unable to get access to tty.");
+                        return 1;
+                    }
                 }
 
-                match crate::tty::ask_confirmation() {
+                match tty.ask_confirmation() {
                     true => {}
-                    false => return (String::new(), 0),
+                    false => return 0,
                 }
             }
             _ => {}
@@ -101,7 +109,7 @@ impl Cmd for Add {
 
         // Save changes and exit
         store.save();
-        (String::default(), 0)
+        return 0;
     }
 }
 
@@ -121,17 +129,20 @@ impl Delete {
 
 impl Cmd for Delete {
     // Delete a path
-    fn execute(self: Box<Self>) -> (String, i32) {
-        if !crate::tty::ask_confirmation() {
-            return (String::new(), 0);
+    fn execute(self: Box<Self>) -> i32 {
+        let mut tty = Tty::new().expect("Error: unable to get raw tty access.");
+
+        if !tty.ask_confirmation() {
+            return 0;
         }
         let mut store = Store::init();
         let ok = store.delete(self.alias).is_ok();
         store.save();
         if ok {
-            (String::default(), 0)
+            0
         } else {
-            (String::from("Error: Alias not found in store"), 1)
+            eprintln!("Error: Alias not found in store");
+            1
         }
     }
 }
@@ -152,7 +163,7 @@ impl Help {
 
 impl Cmd for Help {
     // Print out help for all commands
-    fn execute(self: Box<Self>) -> (String, i32) {
+    fn execute(self: Box<Self>) -> i32 {
         let help = match self.cmd.as_deref() {
             Some("add") => format!(
                 "{} ({}):\n  Usage: {}\n  Description: {}",
@@ -212,27 +223,56 @@ impl Cmd for Help {
             }
         };
 
-        (help, 2)
+        Tty::new()
+            .expect("Error: unable to get access to tty.")
+            .write(help)
+            .unwrap();
+        return 0;
     }
 }
 
 // pin --list
 //
 // Used to list all alias path pairs
-pub struct List {}
+pub struct List {
+    pub filter: Option<String>,
+}
 
 impl List {
     const NAME: &str = "list";
     const SHORT: &str = "-l";
-    const USAGE: &str = "pin --list";
-    const DESC: &str = "List all alias-path pairs";
+    const USAGE: &str = "pin --list [filter pattern](optional)";
+    const DESC: &str = "List all alias-path pairs, filtering paths by an optional pattern";
 }
 
 impl Cmd for List {
     // List all current aliases
-    fn execute(self: Box<Self>) -> (String, i32) {
+    fn execute(self: Box<Self>) -> i32 {
+        let mut table = Table::new();
+        table.add_row(row!["Alias", "Path"]);
+
         let store = Store::init();
-        (store.list_all(), 2)
+        let list = store.list_all();
+
+        // If passed a path, filter by it
+        if let Some(path) = self.filter {
+            list.iter()
+                .filter(|(_, v)| v.contains(path.as_str()))
+                .map(|(k, v)| row![k, v])
+                .for_each(|r| {
+                    table.add_row(r);
+                });
+        } else {
+            list.iter().map(|(k, v)| row![k, v]).for_each(|r| {
+                table.add_row(r);
+            });
+        }
+
+        Tty::new()
+            .expect("Error: unable to get access to tty.")
+            .write(table.to_string())
+            .unwrap();
+        return 0;
     }
 }
 
@@ -252,19 +292,22 @@ impl Update {
 
 impl Cmd for Update {
     // Update a pair, with some tui
-    fn execute(self: Box<Self>) -> (String, i32) {
+    fn execute(self: Box<Self>) -> i32 {
         // Check store to make sure the alias is valid
         let mut store = Store::init();
 
         let path = match store.get(&self.alias) {
             Some(path) => path,
             None => {
-                return (
-                    String::from(
-                        "Error: alias not in store. You can't update an alias that doesn't exist.",
-                    ),
-                    1,
-                );
+                Tty::new()
+                    .expect("Error: unable to get tty access.")
+                    .write(
+                        "Error: alias not in store. You can't update an alias that doesn't exist."
+                            .to_string(),
+                    )
+                    .unwrap();
+
+                return 1;
             }
         };
 
@@ -272,11 +315,14 @@ impl Cmd for Update {
         use std::io::Write;
         let mut tty = match std::fs::OpenOptions::new().write(true).open("/dev/tty") {
             Ok(tty) => tty,
-            Err(_) => return (String::from("Error: unable to access /dev/tty"), 1),
+            Err(_) => {
+                eprintln!("Error: unable to get tty access.");
+                return 1;
+            }
         };
 
         // Intercept inputs before they go to the terminal so we can handle them manually
-        enable_raw_mode().unwrap();
+        enable_raw_mode().expect("Error: unable to get raw tty access.");
 
         let options = ["alias (a)", "path (p)"];
         let mut selected = 0;
@@ -295,7 +341,8 @@ impl Cmd for Update {
             tty.flush().unwrap();
 
             // Handle input
-            if let Event::Key(key_event) = event::read().unwrap() {
+            if let Event::Key(key_event) = event::read().expect("Error: unable to read key events.")
+            {
                 match key_event.code {
                     KeyCode::Enter => break,
                     KeyCode::Char('a') | KeyCode::Char('A') => {
@@ -310,7 +357,7 @@ impl Cmd for Update {
                     KeyCode::Right | KeyCode::Char('l') => selected = 1,
                     KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
                         disable_raw_mode().unwrap();
-                        return (String::from("Canceled"), 2);
+                        return 0;
                     }
                     _ => {}
                 }
@@ -336,12 +383,13 @@ impl Cmd for Update {
             tty.flush().unwrap();
 
             //Handle Input
-            if let Event::Key(key_event) = event::read().unwrap() {
+            if let Event::Key(key_event) = event::read().expect("Error: unable to read key events.")
+            {
                 match key_event.code {
                     KeyCode::Enter => break,
                     KeyCode::Esc => {
                         disable_raw_mode().unwrap();
-                        return (String::from("Canceled"), 2);
+                        return 0;
                     }
                     KeyCode::Backspace => {
                         if cursor_position > 0 {
@@ -372,19 +420,28 @@ impl Cmd for Update {
         disable_raw_mode().unwrap();
 
         if selected == 0 {
-            store.delete(self.alias).unwrap();
+            if let Err(_) = store.delete(self.alias) {
+                eprintln!("Error: alias not found in store.");
+                return 1;
+            }
             let _ = store.add(input, path);
             store.save();
         } else {
             let input = match parse_path(&input) {
-                Ok(path) => path.into_os_string().into_string().unwrap(),
-                Err(msg) => return (msg.to_string(), 1),
+                Ok(path) => path
+                    .into_os_string()
+                    .into_string()
+                    .expect("Error: unable to parse path as string."),
+                Err(msg) => {
+                    eprintln!("{msg}");
+                    return 1;
+                }
             };
             let _ = store.add(self.alias, input);
             store.save();
         }
 
-        (String::new(), 0)
+        return 0;
     }
 }
 
@@ -396,8 +453,9 @@ pub struct ParseErr {
 }
 
 impl Cmd for ParseErr {
-    fn execute(self: Box<Self>) -> (String, i32) {
-        (self.msg, 1)
+    fn execute(self: Box<Self>) -> i32 {
+        eprintln!("{}", self.msg);
+        return 1;
     }
 }
 

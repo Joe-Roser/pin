@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use bincode;
-use prettytable::{Table, row};
 
 // The Datastore
 // Tags: convert the value to a struct to add tags
@@ -33,7 +32,7 @@ impl Store {
             &mut file,
             bincode::config::standard(),
         )
-        .unwrap();
+        .expect("Error: Could not write store to file. Any additions this session will be lost.");
     }
 
     // Validate the input and add it to the map
@@ -57,19 +56,15 @@ impl Store {
     }
 
     //return all key value pairs
-    pub fn list_all(&self) -> String {
-        let mut table = Table::new();
-        table.add_row(row!["Alias", "Path"]);
-
-        self.map.iter().map(|(k, v)| row![k, v]).for_each(|r| {
-            table.add_row(r);
-        });
-
-        table.to_string()
+    pub fn list_all(&self) -> BTreeMap<String, String> {
+        self.map.clone()
     }
 }
 
 // Gets the path of the _pins.store.bin
 fn get_pin_path() -> String {
-    format!("{}/.pin/store.bin", std::env::var("HOME").unwrap())
+    format!(
+        "{}/.pin/store.bin",
+        std::env::var("HOME").expect("Error: unable to get home variable.")
+    )
 }

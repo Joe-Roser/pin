@@ -69,7 +69,9 @@ fn parse_args(mut args: Args) -> Box<dyn Cmd> {
             Box::new(Delete { alias })
         }
         "--help" | "-h" => Box::new(Help { cmd: args.next() }),
-        "--list" | "-l" => Box::new(List {}),
+        "--list" | "-l" => Box::new(List {
+            filter: args.next(),
+        }),
         "--update" | "-u" => {
             // Get the alias or return ParseErr
             let Some(alias) = args.next() else {
@@ -93,8 +95,8 @@ fn parse_args(mut args: Args) -> Box<dyn Cmd> {
 // Entry point for the program
 fn main() {
     let cmd = parse_args(args());
-    let (msg, code) = cmd.execute();
-    println!("{}", msg);
+    let code = cmd.execute();
+
     std::process::exit(code);
 }
 
