@@ -37,3 +37,6 @@ PinAlias struct{
     tags: Vec<string> - if I implement tags
 }
 
+Todo:
+- [ ] Tags
+- [ ] Reworking output to use tty for current 2 codes
