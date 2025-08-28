@@ -2,7 +2,7 @@
 
 pin() {
 	local path exit
-	path=$(/mnt/HDD8TB/code/rust/_pin/target/debug/_pin "$@")
+	path=$( $HOME/.pin/_pin "$@" )
 	exit="$?"
 
 	case "$exit" in
