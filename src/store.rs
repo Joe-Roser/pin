@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use bincode;
 use prettytable::{Table, row};
@@ -7,17 +7,17 @@ use prettytable::{Table, row};
 // Tags: convert the value to a struct to add tags
 // maybe a created at??
 pub struct Store {
-    map: HashMap<String, String>,
+    map: BTreeMap<String, String>,
 }
 
 impl Store {
     // Read in the store or make a fresh one
     pub fn init() -> Store {
-        let map: HashMap<String, String> = if let Ok(file) = std::fs::File::open(get_pin_path()) {
+        let map: BTreeMap<String, String> = if let Ok(file) = std::fs::File::open(get_pin_path()) {
             let reader = std::io::BufReader::new(file);
             bincode::decode_from_reader(reader, bincode::config::standard()).unwrap_or_default()
         } else {
-            HashMap::new()
+            BTreeMap::new()
         };
 
         Store { map: map }
