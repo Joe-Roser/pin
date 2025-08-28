@@ -28,8 +28,7 @@ return codes:
 The rust program interfaces with the script above it by returning different return codes based on the desired program output:
  - 0: Success no response
  - 1: Error response
- - 2: Success response
- - 3: Success cd
+ - 2: Success cd
 
 ### Contributing
 Anyone wishing to make improvements to the code or improve platform availability, I would love to hear from you. Just make a pull request
