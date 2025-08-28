@@ -1,13 +1,16 @@
 mod cmd;
 mod store;
+mod tty;
 
 use cmd::*;
 
 use std::env::{self, Args, args};
 use std::path::PathBuf;
 
+//Check if a path is a valid path
 fn parse_path(path: &String) -> Result<PathBuf, &str> {
     if path == &String::from("~") {
+        // If path is home
         if let Ok(home) = env::var("HOME") {
             let home = PathBuf::from(home);
             Ok(home)
@@ -15,6 +18,7 @@ fn parse_path(path: &String) -> Result<PathBuf, &str> {
             Err("Error: unable to find home directory")
         }
     } else if path.starts_with("~/") && path.len() > 2 {
+        // if path starts with home
         if let Ok(home) = env::var("HOME") {
             let mut home = PathBuf::from(home);
             home.push((path.as_str()[2..]).to_string());
@@ -28,12 +32,15 @@ fn parse_path(path: &String) -> Result<PathBuf, &str> {
     }
 }
 
+// Return a parse error message
 fn err_parse_msg(missing: &str, cmd: &str) -> Box<ParseErr> {
     Box::new(ParseErr {
         msg: format!("Error: missing {missing} from command. Please use \"{cmd}\"."),
     })
 }
 
+// Parse the arguments to the correct command struct, or a parse error
+// Maybe in the future limit argument numbers for each command
 fn parse_args(mut args: Args) -> Box<dyn Cmd> {
     let _ = args.next();
 

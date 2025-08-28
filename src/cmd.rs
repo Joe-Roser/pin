@@ -4,6 +4,7 @@ use crossterm::{
     event::{self, Event, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
+use prettytable::{Table, row};
 
 use crate::{parse_path, store::Store};
 
@@ -32,6 +33,7 @@ impl Pin {
 }
 
 impl Cmd for Pin {
+    // Return path or error
     fn execute(self: Box<Self>) -> (String, i32) {
         let store = Store::init();
         match store.get(&self.alias) {
@@ -60,6 +62,7 @@ impl Add {
 }
 
 impl Cmd for Add {
+    // Add an alias-path pair
     fn execute(self: Box<Self>) -> (String, i32) {
         // Test path
         let path = match crate::parse_path(&self.path) {
@@ -68,8 +71,35 @@ impl Cmd for Add {
         };
 
         let mut store = Store::init();
-        // TODO:
-        let _ = store.add(self.alias, path);
+
+        // Confirmation on overwriting alias
+        // HACK: Defo refactor this
+        match store.add(self.alias, path) {
+            Err(path) => {
+                {
+                    let mut tty = match std::fs::OpenOptions::new().write(true).open("/dev/tty") {
+                        Ok(file) => file,
+                        Err(_) => return (String::from("Error: unable to access /dev/tty"), 1),
+                    };
+                    use std::io::Write;
+
+                    write!(
+                        tty,
+                        "This action will overwrite existing alias to {}.\n\r",
+                        path
+                    )
+                    .unwrap();
+                }
+
+                match crate::tty::ask_confirmation() {
+                    true => {}
+                    false => return (String::new(), 0),
+                }
+            }
+            _ => {}
+        }
+
+        // Save changes and exit
         store.save();
         (String::default(), 0)
     }
@@ -90,9 +120,11 @@ impl Delete {
 }
 
 impl Cmd for Delete {
+    // Delete a path
     fn execute(self: Box<Self>) -> (String, i32) {
-        // Ask for confirmation
-
+        if !crate::tty::ask_confirmation() {
+            return (String::new(), 0);
+        }
         let mut store = Store::init();
         let ok = store.delete(self.alias).is_ok();
         store.save();
@@ -115,10 +147,11 @@ impl Help {
     const NAME: &str = "help";
     const SHORT: &str = "-h";
     const USAGE: &str = "pin --help [cmd(optional)]";
-    const DESC: &str = "List all commands for pin.";
+    const DESC: &str = "List all commands for pin or get specifics about one command.";
 }
 
 impl Cmd for Help {
+    // Print out help for all commands
     fn execute(self: Box<Self>) -> (String, i32) {
         let help = match self.cmd.as_deref() {
             Some("add") => format!(
@@ -163,53 +196,19 @@ impl Cmd for Help {
                 Help::DESC
             ),
             Some(other) => format!("Unknown command: {}", other),
+            // Show summary of all commands
             None => {
-                // Show summary of all commands
-                vec![
-                    format!(
-                        "{} ({}): {}\n  Usage: {}\n",
-                        Pin::NAME,
-                        "",
-                        Pin::DESC,
-                        Pin::USAGE
-                    ),
-                    format!(
-                        "{} ({}): {}\n  Usage: {}\n",
-                        Add::NAME,
-                        Add::SHORT,
-                        Add::DESC,
-                        Add::USAGE
-                    ),
-                    format!(
-                        "{} ({}): {}\n  Usage: {}\n",
-                        Delete::NAME,
-                        Delete::SHORT,
-                        Delete::DESC,
-                        Delete::USAGE
-                    ),
-                    format!(
-                        "{} ({}): {}\n  Usage: {}\n",
-                        List::NAME,
-                        List::SHORT,
-                        List::DESC,
-                        List::USAGE
-                    ),
-                    format!(
-                        "{} ({}): {}\n  Usage: {}\n",
-                        Update::NAME,
-                        Update::SHORT,
-                        Update::DESC,
-                        Update::USAGE
-                    ),
-                    format!(
-                        "{} ({}): {}\n  Usage: {}\n",
-                        Help::NAME,
-                        Help::SHORT,
-                        Help::DESC,
-                        Help::USAGE
-                    ),
-                ]
-                .join("\n")
+                let mut table = Table::new();
+
+                table.add_row(row!["Command", "Description", "Usage"]);
+                table.add_row(row![Pin::NAME, Pin::DESC, Pin::USAGE]);
+                table.add_row(row![Add::NAME, Add::DESC, Add::USAGE]);
+                table.add_row(row![Delete::NAME, Delete::DESC, Delete::USAGE]);
+                table.add_row(row![Help::NAME, Help::DESC, Help::USAGE]);
+                table.add_row(row![List::NAME, List::DESC, List::USAGE]);
+                table.add_row(row![Update::NAME, Update::DESC, Update::USAGE]);
+
+                table.to_string()
             }
         };
 
@@ -230,6 +229,7 @@ impl List {
 }
 
 impl Cmd for List {
+    // List all current aliases
     fn execute(self: Box<Self>) -> (String, i32) {
         let store = Store::init();
         (store.list_all(), 2)
@@ -251,11 +251,11 @@ impl Update {
 }
 
 impl Cmd for Update {
+    // Update a pair, with some tui
     fn execute(self: Box<Self>) -> (String, i32) {
-        // If in store, continue
+        // Check store to make sure the alias is valid
         let mut store = Store::init();
 
-        // Unwrap it
         let path = match store.get(&self.alias) {
             Some(path) => path,
             None => {
@@ -270,36 +270,31 @@ impl Cmd for Update {
 
         // Try get access to writing directly to terminal
         use std::io::Write;
-        let mut tty = if let Ok(tty) = std::fs::OpenOptions::new().write(true).open("/dev/tty") {
-            tty
-        } else {
-            return (String::from("Error: unable to access /dev/tty"), 1);
+        let mut tty = match std::fs::OpenOptions::new().write(true).open("/dev/tty") {
+            Ok(tty) => tty,
+            Err(_) => return (String::from("Error: unable to access /dev/tty"), 1),
         };
 
-        // Intercept inputs before they go to the terminal
+        // Intercept inputs before they go to the terminal so we can handle them manually
         enable_raw_mode().unwrap();
 
-        // Set out possible choices
         let options = ["alias (a)", "path (p)"];
         let mut selected = 0;
 
-        // Colours note
-        // Selected 208
-        // deselected 199
-
         // Loop till choice is made or escape
         loop {
+            // Handle output
             write!(tty, "\r\x1B[2K").unwrap();
             for (i, option) in options.iter().enumerate() {
                 if i == selected {
-                    write!(tty, "\x1b[38:5:208m[{}]\x1b[0m", option).unwrap();
+                    write!(tty, "\x1b[38:5:41m[{}]\x1b[0m", option).unwrap();
                 } else {
-                    write!(tty, "\x1b[38:5:199m {} \x1b[0m", option).unwrap();
+                    write!(tty, " {} ", option).unwrap();
                 }
             }
             tty.flush().unwrap();
 
-            // Handle keyboard events
+            // Handle input
             if let Event::Key(key_event) = event::read().unwrap() {
                 match key_event.code {
                     KeyCode::Enter => break,
@@ -323,6 +318,7 @@ impl Cmd for Update {
         }
         write!(tty, "\r\n").unwrap();
 
+        // Handle choice made
         let option = options[selected];
         let mut input = if selected == 0 {
             self.alias.clone()
@@ -333,12 +329,13 @@ impl Cmd for Update {
         let offset = option.len() + 3;
 
         loop {
+            // Handle output
             write!(tty, "\r\x1B[2K").unwrap();
             write!(tty, "{}: {}", option, input).unwrap();
             write!(tty, "\r\x1B[{}G", offset + cursor_position).unwrap();
-
             tty.flush().unwrap();
 
+            //Handle Input
             if let Event::Key(key_event) = event::read().unwrap() {
                 match key_event.code {
                     KeyCode::Enter => break,
@@ -370,7 +367,6 @@ impl Cmd for Update {
                 }
             }
         }
-
         write!(tty, "\r\n").unwrap();
 
         disable_raw_mode().unwrap();

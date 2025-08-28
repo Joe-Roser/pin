@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 bincode = "2.0.1"
 crossterm = "0.29.0"
+prettytable-rs = "0.10.0"

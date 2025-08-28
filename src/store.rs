@@ -1,12 +1,17 @@
 use std::collections::HashMap;
 
 use bincode;
+use prettytable::{Table, row};
 
+// The Datastore
+// Tags: convert the value to a struct to add tags
+// maybe a created at??
 pub struct Store {
     map: HashMap<String, String>,
 }
 
 impl Store {
+    // Read in the store or make a fresh one
     pub fn init() -> Store {
         let map: HashMap<String, String> = if let Ok(file) = std::fs::File::open(get_pin_path()) {
             let reader = std::io::BufReader::new(file);
@@ -20,8 +25,9 @@ impl Store {
 
     // Write hashmap to file
     pub fn save(self) {
-        let mut file =
-            std::fs::File::create(get_pin_path()).expect("Could not write store to file");
+        let mut file = std::fs::File::create(get_pin_path()).expect(
+            "Error: Could not write store to file. Any additions this session will be lost.",
+        );
         let _ = bincode::encode_into_std_write(
             self.map.clone(),
             &mut file,
@@ -50,13 +56,16 @@ impl Store {
         }
     }
 
-    //prints all key value pairs
+    //return all key value pairs
     pub fn list_all(&self) -> String {
-        self.map
-            .iter()
-            .map(|(k, v)| format!("{k} : {v}"))
-            .reduce(|acc, e| format!("{acc}\n{e}"))
-            .unwrap_or(String::from("You don't have any aliases right now."))
+        let mut table = Table::new();
+        table.add_row(row!["Alias", "Path"]);
+
+        self.map.iter().map(|(k, v)| row![k, v]).for_each(|r| {
+            table.add_row(r);
+        });
+
+        table.to_string()
     }
 }
 
